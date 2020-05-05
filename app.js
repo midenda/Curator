@@ -7,7 +7,10 @@ const bodyParser = require ("body-parser");
 const fs = require ("fs");
 const queryString = require ("querystring");
 const {spawn} = require ("child_process");
-const axios = require ("axios");
+const request = require (__dirname + "/request");
+
+const db = require (__dirname + "/atlas");
+
 
 // Express Server Setup
 const app = express();
@@ -16,7 +19,7 @@ app.use (express.static ("public"));
 app.use (bodyParser.urlencoded ({extended: true}));
 
 
-// Cross-Site Request Forgery (CSRF)
+// Random state to prevent CSRF
 function generateState () {
     return Math.floor (Math.random() * 10000000000);
 
@@ -47,7 +50,7 @@ const playlistScopes = scopes.join (" ");
 
 
 // Retrieve Client Secret and Client ID
-const apiData = JSON.parse (fs.readFileSync (__dirname + "/private/app_credentials.json", "utf-8", (err, data) => {
+const apiData = JSON.parse (fs.readFileSync (__dirname + "/private/secrets.json", "utf-8", (err, data) => {
     if (err) {
         throw err;
     };
@@ -56,12 +59,12 @@ const apiData = JSON.parse (fs.readFileSync (__dirname + "/private/app_credentia
 
 
 let state;
-const redirect_uri = "http://localhost:3000/callback/";
+const redirect_uri = apiData.redirectURI;
+const authToken = Buffer.from (`${apiData.clientID}:${apiData.clientSecret}`).toString ("base64");
 
 
 
-// Express Routing
-
+// ------ Express Routing ------ //
 
 app.get ("/", (req, res) => {
     res.sendFile (__dirname + "/index.html");
@@ -96,7 +99,7 @@ app.get ("/callback", (req, res) => {
     if (!error && receivedState == state) {
 
         res.redirect ("/?logged_in=true");
-        initialLogin(authCode);
+        initialLogin (authCode);
 
     } else if (receivedState !== state) {
 
@@ -114,11 +117,61 @@ app.get ("/callback", (req, res) => {
 
 
 
-// API Interactions
+
+// ------ API Interactions ------ //
 
 
 // Called when a new user accesses the website
 async function initialLogin (authCode) {
+
+    const info = await requestAccess (authCode);
+    const accessToken = info.access;
+    const refreshToken = info.refresh;
+
+    const userID = await retrieveUser (accessToken);
+
+    const user = await getUser (userID);
+
+    // db.deleteUser ({spotify_id: userID});
+    if (!user) {
+        await addUser (userID, refreshToken);
+    }
+    // db.updateUser ({spotify_id: userID}, {preferred_vibes: ["Vibe Music", "Jazz", "Funk"]});
+
+    // const saved = await getSaved (userID, accessToken);
+    // console.log (saved);
+
+    const playlists = await getPlaylists (userID, accessToken);
+    // console.log (`Successfully retrieved ${playlists.length} playlists!`);
+
+    if (!playlists.map (track => track.name).includes ("1010010001010101")) {
+        await createPlaylist (userID, accessToken, "1010010001010101", "This playlist was automatically generated from VIBES");
+    }
+
+    const tracks = await getPlaylist (playlists[14].id, accessToken);
+    // console.log (`Successfully retrieved ${tracks.length} tracks!`);
+
+    const analysis = await getAnalysis (tracks[10].id, accessToken);
+    const features = await getFeatures (tracks[10].id, accessToken);
+}
+
+
+// Uses a refresh token to acquire a new access token
+async function refreshAccess (token) {
+
+    const postBody = queryString.stringify ({
+        grant_type: "refresh_token",
+        refresh_token: token
+    });
+
+    return await requestAccess (postBody);
+}
+
+
+// Acquires an access token and a refresh token
+async function requestAccess (authCode) {
+
+    const url = "https://accounts.spotify.com/api/token";
 
     const postBody = queryString.stringify ({
         grant_type: "authorization_code",
@@ -126,73 +179,14 @@ async function initialLogin (authCode) {
         redirect_uri: redirect_uri
     });
 
-    const info = await requestAccess (postBody);
-    const accessToken = info.access;
+    const rq = await request (url, authToken, "POST", postBody, "Basic");
 
-    const userID = await retrieveUser (accessToken);
-
-    const playlists = await getPlaylists (userID, accessToken);
-    console.log (`Successfully retrieved ${playlists.length} playlists!`);
-
-    const tracks = await getPlaylist (playlists[12].id, accessToken);
-    console.log (`Successfully retrieved ${tracks.length} tracks!`);
-}
-
-
-// Uses a refresh token to acquire a new access token
-function refreshAccess (token) {
-
-    const postBody = queryString.stringify ({
-        grant_type: "refresh_token",
-        refresh_token: token
-    });
-
-    return requestAccess (postBody);
-}
-
-
-// Acquires an access token and a refresh token
-async function requestAccess (postBody) {
-
-    const url = "https://accounts.spotify.com/api/token";
-
-    const options = {
-
-        method: "POST",
-        url: url,
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            Authorization: "Basic " + Buffer.from (`${apiData.clientID}:${apiData.clientSecret}`).toString ("base64")
-        },
-        data: postBody
-
+    const tokens = {
+        access: rq.access_token,
+        refresh: rq.refresh_token
     };
 
-    try {
-
-        const request = await axios (options);
-
-        const tokens = {
-            access: request.data.access_token,
-            refresh: request.data.refresh_token
-        }
-
-        const status = request.status;
-
-        if (status == 200) {
-            console.log ("Successfully acquired access token!");
-        } else {
-            console.log ("Status: " + status);
-            throw status;
-        }
-
-        return tokens;
-
-    } catch (error) {
-        console.error (error);
-        throw error;
-    }
-
+    return tokens;
 }
 
 
@@ -201,94 +195,64 @@ async function retrieveUser (token) {
 
     const url = "https://api.spotify.com/v1/me";
 
-    const options = {
+    const rq = await request (url, token);
+    console.log ("Retrieved user successfully");
 
-        method: "GET",
-        url: url,
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            Authorization: "Bearer " + token
-        }
-
-    };
-
-
-    try {
-
-        const request = await axios (options);
-        const status = request.status;
-
-        if (status == 200) {
-            console.log ("Successfully retrieved user id!");
-        } else {
-            console.log ("Status: " + status);
-            throw status;
-        }
-
-        return request.data.id;
-
-    } catch (error) {
-        console.error (error);
-        throw error;
-    }
-
+    return rq.id;
 }
 
 
 // Fetches a user's playlists
 async function getPlaylists (userID, token) {
 
-    let url = `https://api.spotify.com/v1/users/${userID}/playlists?limit=50&offset=0`
+    let url = `https://api.spotify.com/v1/users/${userID}/playlists?limit=50&offset=0`;
 
 
     async function retrievePlaylists (url) {
 
-        const options = {
+        const rq = await request (url, token);
 
-            method: "GET",
-            url: url,
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-                Authorization: "Bearer " + token
-            }
+        const playlists = rq.items.map (playlist => ({
+            name: playlist.name,
+            id: playlist.id
+        }));
 
-        };
+        const next = rq.next;
 
-        try {
-
-            const request = await axios (options);
-            const status = request.status;
-
-            if (status == 200) {
-
-                const data = request.data;
-
-                const playlists = data.items.map (playlist => ({
-                    name: playlist.name,
-                    id: playlist.id
-                }));
-
-                const next = data.next;
-
-                if (next != null) {
-                    playlists.push (... await retrievePlaylists (next));
-                }
-
-                return playlists;
-
-            } else {
-                console.log ("Status: " + status);
-                throw status;
-            }
-
-        } catch (error) {
-            console.error (error);
-            throw error;
+        if (next != null) {
+            playlists.push (... await retrievePlaylists (next));
         }
 
+        return playlists;
     }
 
     return await retrievePlaylists (url);
+
+}
+
+
+// Fetches a user's saved songs
+async function getSaved (userID, token) {
+
+    const url = "https://api.spotify.com/v1/me/tracks?limit=50&offset=0";
+
+
+    async function retrieveSaved (url) {
+
+        const rq = await request (url, token);
+
+        const tracks = rq.items.map (track => ({name: track.track.name, id: track.track.id}));
+        const next = rq.next;
+
+        if (next != null) {
+            tracks.push (... await retrieveSaved (next));
+        }
+
+        return tracks;
+
+    }
+
+    return await retrieveSaved (url);
 }
 
 
@@ -301,92 +265,145 @@ async function getPlaylist (playlistID, token) {
 
 
     async function retrievePlaylist (url) {
+        const rq = await request (url, token);
 
-        const options = {
+        const data = rq.tracks || rq;
 
-            method: "GET",
-            url: url,
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded",
-                Authorization: "Bearer " + token
-            }
+        const tracks = data.items.map (track => ({name: track.track.name, id: track.track.id}));
+        const next = data.next;
 
-        };
-
-
-        try {
-
-            const request = await axios (options);
-            const status = request.status;
-
-            if (status == 200) {
-
-                const data = request.data.tracks || request.data;
-                // console.log (data);
-                const tracks = data.items.map (track => ({name: track.track.name, id: track.track.id}));
-                const next = data.next;
-
-                if (next != null) {
-                    tracks.push (... await retrievePlaylist (next));
-                }
-
-                return tracks;
-
-            } else {
-                console.log ("Status: " + status);
-                throw status;
-            }
-
-        } catch (error) {
-            console.error (error);
-            throw error;
+        if (next != null) {
+            tracks.push (... await retrievePlaylist (next));
         }
 
+        return tracks;
     }
 
     return await retrievePlaylist (url);
 }
 
 
-function everything (user) {
+// Search Spotify for tracks, albums etc
+async function search (query, token) {
+
+    const queryParams = queryString.stringify ({
+        q: query,
+        type: ["album", "artist", "playlist", "track", "show", "episode"].join (","),
+        limit: 50,
+        offset: 0
+    });
+
+    let url = `https://api.spotify.com/v1/search?${queryParams}`;
+
+    const rq = await request (url, token);
+    console.log (rq);
 
 }
 
 
-function saveDiscovery (user) {
+// Spotify vibe check
+async function getAnalysis (id, token) {
+    const url = `https://api.spotify.com/v1/audio-analysis/${id}`;
 
+    const rq = await request (url, token);
+
+    // console.log (rq.meta);
+    // console.log (rq.track);
+    // console.log (rq.bars);
+    // console.log (rq.beats);
+    // console.log (rq.sections);
+    // console.log (rq.segments);
+    // console.log (rq.tatums);
+
+    return rq;
+}
+
+async function getFeatures (ids, token) {
+
+    if (!Array.isArray (ids)) {
+        ids = [ids];
+    }
+
+    const url = `https://api.spotify.com/v1/audio-features?ids=${ids.join (",")}`;
+
+    const rq = await request (url, token);
+    return rq;
 }
 
 
-function curateQueue (user) {
+async function createPlaylist (userID, token, name, description) {
 
-}
+    const url = `https://api.spotify.com/v1/users/${userID}/playlists`;
 
-
-
-// Database interactions
-
-
-function getUser (id) {
-    // runSpawn ("")
-}
-
-
-function saveUser (id, token) {
-    if (!getUser(id)) {
-        // runSpawn ("")
+    const data = {
+        name: name,
+        public: false,
+        collaborative: false,
+        description: description
     };
-    return true;
+
+    const rq = await request (url, token, "POST", data, type = "json");
 }
 
 
-function addUser (user, refreshToken) {
+async function addTrack () {
+
+}
+
+
+// Duplicates the user's saved songs library
+async function everything (userID, token) {
+    const library = await getSaved (userID, token);
+    const playlists = await getPlaylists (userID, token);
+    if (playlists.map (track => track.name).includes ("EVERYTHING")) {
+        console.log ("Found an 'Everything' playlist");
+    } else {
+        console.log ("Didn't find everything, creating playlist");
+        await createPlaylist ("EVERYTHING");
+    }
+
+
+}
+
+
+async function saveDiscovery (user, token) {
+
+}
+
+
+function curateQueue (user, token) {
 
 }
 
 
 
-// Algorithm interactions
+// ------ Database interactions ------ //
+
+async function getUser (id) {
+    return await db.getUser ({spotify_id: id});
+}
+
+
+async function saveUser (id, token) {
+
+    if (! await getUser (id)) {
+        return await addUser (id, token);
+    } else {
+        return true;
+    };
+}
+
+
+async function addUser (id, refreshToken) {
+    return await db.addUser ({spotify_id: id, refresh_token: refreshToken});
+}
+
+async function deleteUser () {
+    return await db.deleteUser ();
+}
+
+
+// ------ Algorithm interactions ------ //
 
 
 function curate (playlist) {
