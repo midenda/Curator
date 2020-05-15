@@ -2,10 +2,20 @@
 
 const axios = require ("axios");
 
-async function request (url, token, method = "GET", postBody = null, auth = "Bearer", type = "x-www-form-urlencoded") {
+async function request (url, token, config = {}) {
+
+    const method = config.method || "GET";
+    const data = config.data || null;
+    const auth = config.auth || "Bearer";
+    const type = config.type || "urlencoded";
 
     const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
     const authorizations = ["Bearer", "Basic"];
+    const contentTypes = {
+        urlencoded: "application/x-www-form-urlencoded",
+        json: "application/json",
+        jpeg: "image/jpeg"
+    };
 
     if (!methods.includes (method)) {
         console.error (new Error ("Specified method invalid"));
@@ -17,16 +27,21 @@ async function request (url, token, method = "GET", postBody = null, auth = "Bea
         throw auth;
     }
 
+    if (! Object.keys (contentTypes).includes (type)) {
+        console.error (new Error ("Specified authorization type invalid"));
+        throw auth;
+    }
+
     const options = {
 
         method: method,
         url: url,
         headers: {
-            "Content-Type": "application/" + type,
+            "Content-Type": contentTypes[type],
             Authorization: `${auth} ${token}`
         },
 
-        data: postBody
+        data: data
 
     };
 
@@ -46,8 +61,9 @@ async function request (url, token, method = "GET", postBody = null, auth = "Bea
         }
 
     } catch (error) {
-        console.error (error.message);
-        throw error;
+        console.log (error.message);
+        console.log (error.response.data.error.message);
+        // throw error;
     }
 }
 

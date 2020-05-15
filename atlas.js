@@ -50,7 +50,7 @@ class Monitor extends EventEmitter {
         const data = new Promise (resolve => {
 
             this.once ("COMPLETE", (verb, result) => {
-                console.log (verb + ": " + result);
+                // console.log (verb + ": " + result);
                 resolve (result);
             });
 

@@ -2,14 +2,16 @@
 
 // Dependencies
 const express = require ("express");
-const https = require ("https");
+// const https = require ("https");
 const bodyParser = require ("body-parser");
 const fs = require ("fs");
 const queryString = require ("querystring");
-const {spawn} = require ("child_process");
-const request = require (__dirname + "/request");
+// const {spawn} = require ("child_process");
+
+const sharp = require ("sharp");
 
 const db = require (__dirname + "/atlas");
+const spotify = require (__dirname + "/spotify-api.js");
 
 
 // Express Server Setup
@@ -22,15 +24,27 @@ app.use (bodyParser.urlencoded ({extended: true}));
 // Random state to prevent CSRF
 function generateState () {
     return Math.floor (Math.random() * 10000000000);
-
 };
+
+let state;
+// Retrieve Client Secret and Client ID
+const apiData = JSON.parse (fs.readFileSync (__dirname + "/private/secrets.json", "utf-8", (err, data) => {
+    if (err) {
+        throw err;
+    };
+    return data;
+}));
+const redirect_uri = apiData.redirectURI;
 
 const scopes = [
 
+    "app-remote-control",
     "playlist-modify-private",
     "playlist-modify-public",
     "playlist-read-collaborative",
     "playlist-read-private",
+    "streaming",
+    "ugc-image-upload",
     "user-follow-modify",
     "user-follow-read",
     "user-library-modify",
@@ -42,26 +56,11 @@ const scopes = [
     "user-read-playback-state",
     "user-read-private",
     "user-read-recently-played",
-    "user-top-read",
+    "user-top-read"
 
 ];
 
 const playlistScopes = scopes.join (" ");
-
-
-// Retrieve Client Secret and Client ID
-const apiData = JSON.parse (fs.readFileSync (__dirname + "/private/secrets.json", "utf-8", (err, data) => {
-    if (err) {
-        throw err;
-    };
-    return data;
-}));
-
-
-let state;
-const redirect_uri = apiData.redirectURI;
-const authToken = Buffer.from (`${apiData.clientID}:${apiData.clientSecret}`).toString ("base64");
-
 
 
 // ------ Express Routing ------ //
@@ -69,7 +68,6 @@ const authToken = Buffer.from (`${apiData.clientID}:${apiData.clientSecret}`).to
 app.get ("/", (req, res) => {
     res.sendFile (__dirname + "/index.html");
 });
-
 
 app.get ("/login", (req, res) => {
 
@@ -88,7 +86,6 @@ app.get ("/login", (req, res) => {
 
     res.redirect (`https://accounts.spotify.com/authorize?${queryParams}`);
 });
-
 
 app.get ("/callback", (req, res) => {
 
@@ -112,10 +109,9 @@ app.get ("/callback", (req, res) => {
         res.send ("Error");
 
     };
-
 });
 
-
+// initialLogin ();
 
 
 // ------ API Interactions ------ //
@@ -124,11 +120,11 @@ app.get ("/callback", (req, res) => {
 // Called when a new user accesses the website
 async function initialLogin (authCode) {
 
-    const info = await requestAccess (authCode);
+    const info = await spotify.requestAccess (authCode);
     const accessToken = info.access;
     const refreshToken = info.refresh;
 
-    const userID = await retrieveUser (accessToken);
+    const userID = await spotify.retrieveUser (accessToken);
 
     const user = await getUser (userID);
 
@@ -136,243 +132,123 @@ async function initialLogin (authCode) {
     if (!user) {
         await addUser (userID, refreshToken);
     }
-    // db.updateUser ({spotify_id: userID}, {preferred_vibes: ["Vibe Music", "Jazz", "Funk"]});
+    // db.updateUser ({spotify_id: userID}, {preferred_vibes: []});
 
-    // const saved = await getSaved (userID, accessToken);
-    // console.log (saved);
+    // const saved = await spotify.getSavedTracks (userID, accessToken);
+    // console.log (`Successfully retrieved ${saved.length} tracks!`);
 
-    const playlists = await getPlaylists (userID, accessToken);
+    // const playlists = await spotify.getPlaylists (userID, accessToken);
+    // console.log (playlists);
     // console.log (`Successfully retrieved ${playlists.length} playlists!`);
 
-    if (!playlists.map (track => track.name).includes ("1010010001010101")) {
-        await createPlaylist (userID, accessToken, "1010010001010101", "This playlist was automatically generated from VIBES");
-    }
+    // await spotify.discover (userID, accessToken);
 
-    const tracks = await getPlaylist (playlists[14].id, accessToken);
+    // const demo = await demoPlaylist (userID, accessToken);
+
+    // await spotify.getTopArtists (accessToken);
+    // let albums = await spotify.getSavedAlbums (accessToken);
+
+    // const a = await spotify.getAlbums (albums.map (album => album.id), accessToken);
+
+    // await spotify.saveAlbumsOfTracks (saved.map (album => album.id), accessToken);
+    // await spotify.purgeSinglesFromAlbumLibrary (accessToken);
+
+    // await spotify.search ({keywords: "Window", types: ["track", "album"]}, accessToken);
+
+    // const tracks = await spotify.getPlaylist (playlists.find (playlist => playlist.name === "Funk").id, accessToken);
+    // console.log (tracks);
     // console.log (`Successfully retrieved ${tracks.length} tracks!`);
 
-    const analysis = await getAnalysis (tracks[10].id, accessToken);
-    const features = await getFeatures (tracks[10].id, accessToken);
+    // await spotify.getTracks (tracks.map (track => track.id), accessToken);
+
+    // await spotify.saveTracks (tracks.map (track => track.id), accessToken);
+
+    // await spotify.followArtistsOfTracks (saved.map (track => track.id), accessToken);
+    // await spotify.saveAlbumsOfTracks (saved.map (track => track.id), accessToken);
+    // await spotify.everything (userID, accessToken);
+    // await spotify.followArtistsOfPlaylist (playlists.find (playlist => playlist.name === "EVERYTHING").id, accessToken);
+
+    // const following = await spotify.getFollowedArtists (accessToken);
+    // console.log (following[50]);
+
+    // const found = await spotify.locate ("75ZoDBdTAO9e896PtMsbnG", userID, accessToken);
+    // console.log (found);
+
+    // await spotify.updateDetails (demo, accessToken, {name: ":o"});
+    // await spotify.replaceItems (demo, accessToken, tracks.map (track => track.id));
+
+    // await spotify.isFollowingPlaylist (playlists [10].id, accessToken, userID);
+
+    // const seed = {
+    //     // tracks: "75ZoDBdTAO9e896PtMsbnG",
+    //     artists: "0oBsnAC3fzYkTHF3bkfNx6",
+    //     genres: "jazz"
+    // };
+
+    // const related = await spotify.getRelatedArtists ("0oBsnAC3fzYkTHF3bkfNx6", accessToken);
+    // console.log (related);
+
+    // const recommendations = await spotify.getRecommendations (seed, accessToken);
+    // console.log (recommendations);
+
+    // await spotify.getPlayback (accessToken);
+    // console.log (await spotify.getPlaylist ("7mUGKVfwTtIQPnmOgASadv", accessToken));
+    // await spotify.setPlayback (accessToken, {context: "spotify:playlist:35VgIxwk3BjnooaEogMGol", ids: ["75ZoDBdTAO9e896PtMsbnG", "4vHNeBWDQpVCmGbaccrRzi", "6fBbjet8vNl41n66lUUVsm"]});
+    // await spotify.addToQueue (["75ZoDBdTAO9e896PtMsbnG", "4vHNeBWDQpVCmGbaccrRzi", "6fBbjet8vNl41n66lUUVsm"], accessToken);
+
+    // const analysis = await spotify.getAnalysis ("75ZoDBdTAO9e896PtMsbnG", accessToken);
+    // const features = await spotify.getFeatures ("75ZoDBdTAO9e896PtMsbnG", accessToken);
+    // console.log (features);
 }
 
 
-// Uses a refresh token to acquire a new access token
-async function refreshAccess (token) {
+async function compressImage (image) {
 
-    const postBody = queryString.stringify ({
-        grant_type: "refresh_token",
-        refresh_token: token
-    });
+    image = await sharp (image)
 
-    return await requestAccess (postBody);
-}
+    const imageData = await image.metadata();
+    let quality;
 
-
-// Acquires an access token and a refresh token
-async function requestAccess (authCode) {
-
-    const url = "https://accounts.spotify.com/api/token";
-
-    const postBody = queryString.stringify ({
-        grant_type: "authorization_code",
-        code: authCode,
-        redirect_uri: redirect_uri
-    });
-
-    const rq = await request (url, authToken, "POST", postBody, "Basic");
-
-    const tokens = {
-        access: rq.access_token,
-        refresh: rq.refresh_token
-    };
-
-    return tokens;
-}
-
-
-// Fetches the user's details
-async function retrieveUser (token) {
-
-    const url = "https://api.spotify.com/v1/me";
-
-    const rq = await request (url, token);
-    console.log ("Retrieved user successfully");
-
-    return rq.id;
-}
-
-
-// Fetches a user's playlists
-async function getPlaylists (userID, token) {
-
-    let url = `https://api.spotify.com/v1/users/${userID}/playlists?limit=50&offset=0`;
-
-
-    async function retrievePlaylists (url) {
-
-        const rq = await request (url, token);
-
-        const playlists = rq.items.map (playlist => ({
-            name: playlist.name,
-            id: playlist.id
-        }));
-
-        const next = rq.next;
-
-        if (next != null) {
-            playlists.push (... await retrievePlaylists (next));
-        }
-
-        return playlists;
-    }
-
-    return await retrievePlaylists (url);
-
-}
-
-
-// Fetches a user's saved songs
-async function getSaved (userID, token) {
-
-    const url = "https://api.spotify.com/v1/me/tracks?limit=50&offset=0";
-
-
-    async function retrieveSaved (url) {
-
-        const rq = await request (url, token);
-
-        const tracks = rq.items.map (track => ({name: track.track.name, id: track.track.id}));
-        const next = rq.next;
-
-        if (next != null) {
-            tracks.push (... await retrieveSaved (next));
-        }
-
-        return tracks;
-
-    }
-
-    return await retrieveSaved (url);
-}
-
-
-// Fetches the details of a single playlist
-async function getPlaylist (playlistID, token) {
-
-    const fields = "tracks.items(track(name,id)),tracks.next";
-
-    let url = `https://api.spotify.com/v1/playlists/${playlistID}?fields=${fields}`;
-
-
-    async function retrievePlaylist (url) {
-        const rq = await request (url, token);
-
-        const data = rq.tracks || rq;
-
-        const tracks = data.items.map (track => ({name: track.track.name, id: track.track.id}));
-        const next = data.next;
-
-        if (next != null) {
-            tracks.push (... await retrievePlaylist (next));
-        }
-
-        return tracks;
-    }
-
-    return await retrievePlaylist (url);
-}
-
-
-// Search Spotify for tracks, albums etc
-async function search (query, token) {
-
-    const queryParams = queryString.stringify ({
-        q: query,
-        type: ["album", "artist", "playlist", "track", "show", "episode"].join (","),
-        limit: 50,
-        offset: 0
-    });
-
-    let url = `https://api.spotify.com/v1/search?${queryParams}`;
-
-    const rq = await request (url, token);
-    console.log (rq);
-
-}
-
-
-// Spotify vibe check
-async function getAnalysis (id, token) {
-    const url = `https://api.spotify.com/v1/audio-analysis/${id}`;
-
-    const rq = await request (url, token);
-
-    // console.log (rq.meta);
-    // console.log (rq.track);
-    // console.log (rq.bars);
-    // console.log (rq.beats);
-    // console.log (rq.sections);
-    // console.log (rq.segments);
-    // console.log (rq.tatums);
-
-    return rq;
-}
-
-async function getFeatures (ids, token) {
-
-    if (!Array.isArray (ids)) {
-        ids = [ids];
-    }
-
-    const url = `https://api.spotify.com/v1/audio-features?ids=${ids.join (",")}`;
-
-    const rq = await request (url, token);
-    return rq;
-}
-
-
-async function createPlaylist (userID, token, name, description) {
-
-    const url = `https://api.spotify.com/v1/users/${userID}/playlists`;
-
-    const data = {
-        name: name,
-        public: false,
-        collaborative: false,
-        description: description
-    };
-
-    const rq = await request (url, token, "POST", data, type = "json");
-}
-
-
-async function addTrack () {
-
-}
-
-
-// Duplicates the user's saved songs library
-async function everything (userID, token) {
-    const library = await getSaved (userID, token);
-    const playlists = await getPlaylists (userID, token);
-    if (playlists.map (track => track.name).includes ("EVERYTHING")) {
-        console.log ("Found an 'Everything' playlist");
+    if (imageData.size > 250000) {
+        quality = 85;
     } else {
-        console.log ("Didn't find everything, creating playlist");
-        await createPlaylist ("EVERYTHING");
-    }
+        quality = 100;
+    };
 
+    const processed = await image.resize ({width: 1080}).jpeg ({
+        quality: quality,
+    }).toBuffer ({resolveWithObject: true});
 
+    return processed.data.toString("base64");
 }
 
 
-async function saveDiscovery (user, token) {
+async function demoPlaylist (userID, token) {
 
-}
+    const playlists = await spotify.getPlaylists (userID, token);
 
+    if (!playlists.map (track => track.name).includes ("1010010001010101")) {
 
-function curateQueue (user, token) {
+        const image = fs.readFileSync (__dirname + "/public/images/default-playlist-image.jpeg", (err, data) => {
+            if (err) {
+                throw err;
+            };
+            return data;
+        });
 
+        const details = {
+            name: "1010010001010101",
+            description: "This playlist was automatically generated from pure vibes",
+            image: await compressImage (image),
+            tracks: ["3hARuUtzTdUuWH1KiLJlSf", "4W5TgSWXxpaDzqJcyeQd61", "0LBtTqsatK31j5bhBCFwkb", "2PKTJ0qAGaavKrhLJuQrRt", "55d7W9ClLsLUf74IQ7Qp0z"]
+        };
+
+        const playlist = await spotify.createPlaylist (userID, token, details);
+
+        setTimeout (() => { spotify.unfollowPlaylist (playlist.id, token) }, 15000);
+
+        return playlist.id;
+    };
 }
 
 
@@ -383,7 +259,6 @@ async function getUser (id) {
     return await db.getUser ({spotify_id: id});
 }
 
-
 async function saveUser (id, token) {
 
     if (! await getUser (id)) {
@@ -392,7 +267,6 @@ async function saveUser (id, token) {
         return true;
     };
 }
-
 
 async function addUser (id, refreshToken) {
     return await db.addUser ({spotify_id: id, refresh_token: refreshToken});
