@@ -1,3 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap');
+
 body {
     text-align: center;
+}
+
+label {
+    display: block;
+}
+
+a:hover {
+    background-color: #00BE83;
+    color: #FFF;
+    border-color: #FFF;
+}
+
+.connect {
+    background-color: #BBB;
+    color: #FFF;
+
+    border-radius: 3%;
+
+    display: block;
+    width: 300px;
+
+    margin: 100px auto;
+    padding: 20px;
+}
+
+.connect a {
+    text-decoration: none;
+    background-color: #FFF;
+    color: #00BE83;
+    font-family: 'Inter', sans-serif;
+    border: 1px solid #00BE83;
+    border-radius: 10px;
+
+    position: relative;
+    display: block;
+    width: 200px;
+
+    padding: 15px;
+    margin: 15px auto;
+
+    animation: rise-fade ease-out 0.75s;
+}
+
+@keyframes fade-in {
+    0% {opacity: 0; visibility: hidden;}
+    100% {opacity: 1; visibility: visible;}
+
+}
+
+@keyframes rise-up {
+    0% {bottom: -50px;}
+    100% {bottom: 0px;}
+}
+
+@keyframes rise-fade {
+    0% {bottom: -50px; opacity: 0; visibility: hidden;}
+    100% {bottom: 0px; opacity: 1; visibility: visible;}
 }

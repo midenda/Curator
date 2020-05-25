@@ -4,17 +4,8 @@ const fs = require ("fs");
 const queryString = require ("querystring");
 const request = require (__dirname + "/request");
 
-
-// Retrieve Client Secret and Client ID
-const apiData = JSON.parse (fs.readFileSync (__dirname + "/private/secrets.json", "utf-8", (err, data) => {
-    if (err) {
-        throw err;
-    };
-    return data;
-}));
-
-const redirect_uri = apiData.redirectURI;
-const authToken = Buffer.from (`${apiData.clientID}:${apiData.clientSecret}`).toString ("base64");
+const redirect_uri = "http://localhost:3000/callback/";
+const authToken = Buffer.from (`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString ("base64");
 
 
 async function iterative (params, filter) {

@@ -1,0 +1,46 @@
+<!DOCTYPE html/>
+<html lang="en-UK">
+
+    <head>
+        <title>Curator - Spotify Web App</title>
+        <link rel="stylesheet" type="text/css" href="styles.css"/>
+        <meta charset="UTF-8"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <meta name="color-scheme" content="light dark"/>
+
+        <meta name="description" content=""/>
+        <meta name="keywords" content="spotify,playlist,curator,curation"/>
+    </head>
+
+    <body>
+
+        <div class="connect">
+            <a href="/auth/google" target="_self">Login With Google</a>
+        </div>
+
+        <div class="connect">
+            <h3>Login</h3>
+            <form action="/login" method="POST">
+                <label> Username:
+                    <input type="text" name="username" id="username" autocomplete="off"/>
+                </label>
+                <label> Password:
+                    <input type="password" name="password" id="password" autocomplete="off"/>
+                </label>
+                <button type="submit">Login!</button>
+            </form>
+
+            <h3>(register)</h3>
+            <form action="/register" method="POST">
+                <label> Username:
+                    <input type="text" name="username" id="username" autocomplete="off"/>
+                </label>
+                <label> Password:
+                    <input type="password" name="password" id="password" autocomplete="off"/>
+                </label>
+                <button type="submit">Register!</button>
+            </form>
+        </div>
+    </body>
+
+</html>
