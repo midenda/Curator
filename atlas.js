@@ -264,12 +264,23 @@ async function main (verb, args) {
                 });
 
             } else {
-                await User.findOne (args, (error, results) => {
+                let filter;
+
+                if (args.google_id) {
+                    filter = {google_id: args.google_id};
+
+                } else if (args.facebook_id) {
+                    filter = {facebook_id: args.facebook_id};
+
+                };
+
+                await User.findOne (filter, async (error, results) => {
                     if (error) { return appLink.emit (verb, null, error); };
 
                     if (!results) {
-                        appLink.emit (verb, true, null);
-                        appLink.addUser (args);
+                        const user = await appLink.addUser (args);
+                        appLink.emit (verb, user, null);
+
                     } else {
                         appLink.emit (verb, results, null);
                     }

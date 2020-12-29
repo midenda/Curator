@@ -2,9 +2,10 @@
 
 const fs = require ("fs");
 const queryString = require ("querystring");
-const request = require (__dirname + "/request");
+const request = require (__dirname + "/request.js");
+const mp = require (__dirname + "/metropolitan.js");
 
-const redirect_uri = "http://localhost:3000/callback/";
+const redirect_uri = process.env.SPOTIFY_REDIRECT;
 const authToken = Buffer.from (`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString ("base64");
 
 
@@ -13,7 +14,9 @@ async function iterative (params, filter) {
     const rq = await request (params.url, params.token, params.config);
     const list = filter (rq);
 
+
     params.url = rq.next;
+
     if (params.limit) {
         params.limit -= 1;
     }
@@ -246,19 +249,23 @@ async function getPlaylist (playlistID, token) {
 
         const data = rq.tracks || rq;
 
-        const tracks = data.items.map (track => ({
-            name: track.track.name,
-            id: track.track.id,
-            album: {
-                name: track.track.album.name,
-                id: track.track.album.id,
-                artists: track.track.album.artists,
-                images: track.track.album.images,
-                length: track.track.album.total_tracks
-            },
-            artists: track.track.artists.map (artist => ({name: artist.name, id: artist.id})),
-            preview_url: track.track.preview_url
-        }));
+        const tracks = data.items.map (track => {
+            if (!track.track) { return };
+
+            return {
+                name: track.track.name,
+                id: track.track.id,
+                album: {
+                    name: track.track.album.name,
+                    id: track.track.album.id,
+                    artists: track.track.album.artists,
+                    images: track.track.album.images,
+                    length: track.track.album.total_tracks
+                },
+                artists: track.track.artists.map (artist => ({name: artist.name, id: artist.id})),
+                preview_url: track.track.preview_url
+            };
+        });
 
         // const tracks = data.items.map (track => ({name: track.track.name, id: track.track.id}));
         const next = data.next;
@@ -995,6 +1002,25 @@ async function search (query = {}, token) {
 
     const results = await request (url, token);
 
+    if (query.types.includes ("track")) {
+
+        const tracks = results.tracks.items.map (track => ({
+            name: track.name,
+            id: track.id,
+            album: {
+                name: track.album.name,
+                id: track.album.id,
+                artists: track.album.artists,
+                images: track.album.images,
+                length: track.album.total_tracks
+            },
+            artists: track.artists.map (artist => ({name: artist.name, id: artist.id})),
+            preview_url: track.preview_url
+        }));
+
+        return tracks;
+    };
+
     return results;
 }
 
@@ -1043,13 +1069,14 @@ async function discover (userID, token) {
     return discovery.id;
 }
 
-// Returns the user's recently listen tracks
+// Returns the user's (up to 50) most recently listen tracks
 async function getRecentlyListened (token, details = {}) {
 
     let limit;
 
     if (details.limit && details.limit > 50) {
         limit = Math.floor (details.limit / 50) + 1;
+        details.limit = 50;
     } else {
         limit = 1;
     };
@@ -1064,35 +1091,67 @@ async function getRecentlyListened (token, details = {}) {
 
     return await iterative ({url, token, limit}, req => req.items.map (track => ({
         name: track.track.name,
-            id: track.track.id,
-            album: {
-                name: track.track.album.name,
-                id: track.track.album.id,
-                artists: track.track.album.artists,
-                images: track.track.album.images,
-                length: track.track.album.total_tracks
-            },
-            artists: track.track.artists.map (artist => ({name: artist.name, id: artist.id})),
-            preview_url: track.track.preview_url
+        id: track.track.id,
+        album: {
+            name: track.track.album.name,
+            id: track.track.album.id,
+            artists: track.track.album.artists,
+            images: track.track.album.images,
+            length: track.track.album.total_tracks
+        },
+        artists: track.track.artists.map (artist => ({
+            name: artist.name,
+            id: artist.id
+        })),
+        preview_url: track.track.preview_url
     })));
 }
 
 
 // Finds every song in a user's library and playlists
-async function getAll (userID, token) {
+async function getAll (userID, token, blacklist = []) {
+    const start = Date.now();
+
+    console.log ("Retrieving all tracks from your profile");
+
+    let i = 0;
+    const timer = setInterval (() => {
+        if (i / 10 == Math.round (i / 10) && i != 0) {
+            process.stdout.write (` (${i} seconds)\n.`);
+        } else {
+            process.stdout.write (".");
+        };
+        i++;
+    }, 1000);
+
     const library = await getSavedTracks (userID, token);
     const playlists = await getPlaylists (userID, token);
 
-    let tracks = library.map (track => ({name: track.name, id: track.id, foundIn: "Library"}));
+    let tracks = library.map (track => ({
+        name: track.name,
+        id: track.id,
+        artists: track.artists,
+        album: {
+            name: track.album.name,
+            id: track.album.id
+        },
+        foundIn: "Library"
+    }));
 
     for (const playlist of playlists) {
-        const items = await getPlaylist (playlist.id, token);
 
-        items.forEach (track => {
-            track.foundIn = playlist;
-        });
+        if (!(blacklist.includes (playlist.name) || blacklist.includes (playlist.id))) {
 
-        tracks.push (items);
+            const items = await getPlaylist (playlist.id, token);
+
+            items.forEach (track => {
+                if (track) {
+                    track.foundIn = playlist;
+                };
+            });
+
+            tracks.push (items);
+        };
     }
 
     tracks = [... new Set (tracks.flat())];
@@ -1101,13 +1160,33 @@ async function getAll (userID, token) {
     const found = [];
     for (const track of tracks) {
 
+        if (!track) {
+            continue;
+        };
+
         if (!found.includes (track.id)) {
-            track.foundIn = tracks.filter (item => item.id === track.id).map (item => item.foundIn).flat();
+            track.foundIn = tracks.filter (item => {
+                if (item) {
+                    return item.id === track.id;
+                } else {
+                    return false;
+                };
+
+            }).map (item => item.foundIn).flat();
 
             unique.push (track);
             found.push (track.id);
-        }
+        };
     }
+
+    clearInterval (timer);
+    if (10 - (i % 10) != 10) {
+        process.stdout.write (".".repeat (10 - (i % 10)) + "\n\n");
+    } else {
+        console.log ("\n");
+    };
+
+    console.log (`Found ${unique.length} tracks (from your library and ${playlists.length} playlists) in ${(Date.now() - start) / 1000} seconds`)
 
     return unique;
 }
@@ -1119,6 +1198,7 @@ async function everything (userID, token) {
 
     const tracks = library.map (track => track.id);
 
+    // // If you really want EVERYTHING
     // for (const playlist of playlists) {
     //     console.log (`Getting ${playlist.name}`);
     //     const items = await getPlaylist (playlist.id, token);
@@ -1167,6 +1247,8 @@ async function everything (userID, token) {
         }
 
     }
+
+    return tracks
 }
 
 // Removes all albums of length one from album library
@@ -1182,6 +1264,154 @@ async function purgeSinglesFromAlbumLibrary (token) {
     console.log (`Unsaving ${library.length} albums of length 1!`);
 
     return await unsaveAlbums (library.map (album => album.id), token);
+}
+
+// Recovers deleted songs
+async function recoverDeleted (userID, token, missingThreshold = 1) {
+    const data = __dirname + "/private/MyData";
+
+    // const library = require (data + "/YourLibrary.json").tracks;
+
+    const history0 = require (data + "/StreamingHistory0.json");
+    const history1 = require (data + "/StreamingHistory1.json");
+
+    const history = history0.concat (history1).map (item => ({
+        name: item.trackName,
+        artist: item.artistName
+    }));
+
+    // const history = await getRecentlyListened (token);
+    // const history = await getListeningHistory ();
+
+    const all = await getAll (userID, token, ["EVERYTHING", "Discovery Channel"]);
+
+    const library = all.map (item => {
+        if (!(item.artists && item.album && item.name)) {
+            console.log (item);
+        };
+        return {
+            ... item.artists && {artist: item.artists [0].name},
+            album: item.album.name,
+            name: item.name
+        }
+    });
+
+
+    // let missing = history.filter (item => {
+    //     if (!library.some (track => ((track.track == item.trackName) && (track.artist == item.artistName)))) {
+    //         return item;
+    //     }
+    // });
+
+    let missing = history.filter (item => {
+        if (!library.some (track => ((track.name == item.name) && (track.artist == item.artist)))) {
+            return item;
+        }
+    });
+
+    function sorting (first, second) {
+        return mp.compare (first, second, ["artist", "name"]);
+    };
+
+    function sortByCount (first, second) {
+        return mp.compare (first, second, ["count", "artist", "name"]);
+    };
+
+
+    missing = missing.sort (sorting);
+
+    for (let i = 0; i < missing.length - 1; i++) {
+
+        if (mp.compare (missing [i], missing [i + 1], ["artist", "name"]) === 0) {
+
+            let j = 1;
+            while (j < missing.length) {
+                if (mp.compare (missing [i + j], missing [i + j + 1]) != 0) {
+                    break;
+                };
+                j++;
+            };
+
+            missing [i].count = j + 1
+
+            missing.splice (i + 1, j);
+        };
+    };
+
+    let results = missing.filter (item => item.count > missingThreshold).sort (sortByCount).map (track => ({
+        name: track.name,
+        artist: track.artist,
+        count: track.count
+    }));
+
+    while (results.length > 100) {
+        missingThreshold += 1;
+        results = missing.filter (item => item.count > missingThreshold).sort (sortByCount);
+    };
+
+    const total = results.length;
+
+    console.log (`${missing.length} out of ${library.length} tracks in your listening history are not in your library, ${total} of which you have listened to more than ${missingThreshold} times!`);
+
+    if (total > 0) {
+
+        if (total < 50) {
+            for (const result of results) {
+                console.log (result);
+            };
+        };
+
+        const trackList = [];
+
+        let completed = 0;
+
+        // const tracks = new Promise (resolve => {
+        //     results.forEach (async track => {
+
+        //         const query = {
+        //             keywords: track.name,
+        //             ... track.album && { album: track.album },
+        //             artist: track.artist,
+        //             track: track.name,
+        //             types: ["track"]
+        //         };
+
+        //         const searchResults = await search (query, token);
+
+        //         if (searchResults == []) {
+        //             console.log (searchResults);
+        //             return false;
+        //         };
+
+        //         const current = searchResults [0].id;
+
+        //         if (!trackList.includes (current)) {
+        //             trackList.push (current);
+        //         };
+
+        //         completed += 1
+
+        //         if (completed == total) {
+        //             resolve (trackList);
+        //         };
+
+        //     });
+        // });
+
+        // const details = {
+        //     name: "Lost Tracks",
+        //     description: `A playlist containing ${total} songs that are missing from your library.`,
+        //     image: null,
+        //     tracks: await tracks
+        // };
+
+        // return createPlaylist (userID, token, details);
+
+    } else {
+        console.log ("Found no ");
+    };
+
+
 }
 
 
@@ -1238,5 +1468,6 @@ module.exports = {
     getRecentlyListened,
     getAll,
     everything,
-    purgeSinglesFromAlbumLibrary
+    purgeSinglesFromAlbumLibrary,
+    recoverDeleted
 };

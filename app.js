@@ -10,7 +10,7 @@ const queryString = require ("querystring");
 // const {spawn} = require ("child_process");
 const session = require ("express-session");
 const passport = require ("passport");
-const GoogleStrategy = require("passport-google-oauth20").Strategy;
+const GoogleStrategy = require ("passport-google-oauth20").Strategy;
 
 const sharp = require ("sharp");
 
@@ -35,6 +35,8 @@ const sesh = {
     cookie: {}
 };
 
+
+// The cookie settings below cause problems when running the server locally, so turn off in development
 if (app.get ("env") === "production") {
     app.set ("trust proxy", 1);
     sesh.cookie.secure = true;
@@ -100,7 +102,8 @@ passport.use (new GoogleStrategy ({
     callbackURL: "http://localhost:3000/auth/google/redirect"
 },
     async function (accessToken, refreshToken, profile, cb) {
-        const user = await db.register ({ google_id: profile.id });
+
+        const user = await db.register ({ google_id: profile.id, display_name: profile.displayName, image_url: profile._json.picture });
         if (user) {
             return cb (null, user);
         } else {
@@ -128,7 +131,11 @@ passport.deserializeUser (async (id, done) => {
 
 app.get ("/", (req, res) => {
     // res.render ("index.pug");
-    res.sendFile ("index.html", { root: __dirname + "/public" });
+    if   (req.isAuthenticated()) {
+        res.sendFile ("user.html", { root: __dirname + "/public" });
+    } else {
+        res.sendFile ("index.html", { root: __dirname + "/public" });
+    }
 });
 
 app.get ("/auth/google", passport.authenticate ("google", {
@@ -189,7 +196,7 @@ app.get ("/connect/spotify", (req, res) => {
 
         client_id: process.env.SPOTIFY_CLIENT_ID,
         response_type: "code",
-        redirect_uri: redirect_uri,
+        redirect_uri: process.env.SPOTIFY_REDIRECT,
         state: state,
         scope: playlistScopes,
         show_dialog: false
@@ -236,17 +243,18 @@ async function initialLogin () {
 async function testSpotify (authCode) {
 
     const info = await spotify.requestAccess (authCode);
+    // console.log (info);
     const accessToken = info.access;
     const refreshToken = info.refresh;
 
     const userID = await spotify.retrieveUser (accessToken);
 
-    const user = await getUser (userID);
+    // const user = await getUser (userID);
 
     // db.deleteUser ({spotify_id: userID});
-    if (!user) {
-        await addUser (userID, refreshToken);
-    }
+    // if (!user) {
+    //     await addUser (userID, refreshToken);
+    // }
     // db.updateUser ({spotify_id: userID}, {preferred_vibes: []});
 
     // const saved = await spotify.getSavedTracks (userID, accessToken);
@@ -323,23 +331,25 @@ async function testSpotify (authCode) {
     // const analysis = await spotify.getAnalysis ("75ZoDBdTAO9e896PtMsbnG", accessToken);
     // const features = await spotify.getFeatures ("75ZoDBdTAO9e896PtMsbnG", accessToken);
     // console.log (features);
+
+    await spotify.recoverDeleted (userID, accessToken);
 }
 
 
-async function compressImage (image) {
+async function compressImage (image, size = 250000, dimensions = {width: 1080}) {
 
     image = await sharp (image)
 
     const imageData = await image.metadata();
     let quality;
 
-    if (imageData.size > 250000) {
+    if (imageData.size > size) {
         quality = 85;
     } else {
         quality = 100;
     };
 
-    const processed = await image.resize ({width: 1080}).jpeg ({
+    const processed = await image.resize (dimensions).jpeg ({
         quality: quality,
     }).toBuffer ({resolveWithObject: true});
 
@@ -429,25 +439,25 @@ function curateQueue (user) {
 
 
 // Runs a shell command
-function runSpawn (command, flags) {
-    const executable = spawn (command, flags);
+// function runSpawn (command, flags) {
+//     const executable = spawn (command, flags);
 
-    executable.stdout.on ("data", data => {
-        console.log (`StdOut: ${data}`);
-    });
+//     executable.stdout.on ("data", data => {
+//         console.log (`StdOut: ${data}`);
+//     });
 
-    executable.stderr.on ("data", data => {
-        console.log (`StdErr: ${data}`);
-    });
+//     executable.stderr.on ("data", data => {
+//         console.log (`StdErr: ${data}`);
+//     });
 
-    executable.on ("error", error => {
-        console.log (`Error: ${error.message}`);
-    });
+//     executable.on ("error", error => {
+//         console.log (`Error: ${error.message}`);
+//     });
 
-    executable.on ("close", code => {
-        console.log (`Child Process (${command} ${flags}) exited with code ${code}`);
-    });
-}
+//     executable.on ("close", code => {
+//         console.log (`Child Process (${command} ${flags}) exited with code ${code}`);
+//     });
+// }
 
 
 
