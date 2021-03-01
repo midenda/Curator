@@ -1191,6 +1191,170 @@ async function getAll (userID, token, blacklist = []) {
     return unique;
 }
 
+
+// Creates a playlist of saved songs that haven't been listened too much
+async function getNew (userID, token) {
+    const data = __dirname + "/private/MyData";
+
+    // const library = require (data + "/YourLibrary.json").tracks;
+
+    const history0 = require (data + "/StreamingHistory0.json");
+    const history1 = require (data + "/StreamingHistory1.json");
+
+    const history = history0.concat (history1).map (item => ({
+        name: item.trackName,
+        artist: item.artistName
+    }));
+
+    // const history = await getRecentlyListened (token);
+    // const history = await getListeningHistory ();
+
+    // const all = await getAll (userID, token, ["EVERYTHING", "Discovery Channel"]);
+    const all = await getSavedTracks (userID, token);
+
+    const library = all.map (item => {
+        if (!(item.artists && item.album && item.name)) {
+            console.log (item);
+        };
+        return {
+            ... item.artists && {artist: item.artists [0].name},
+            album: item.album.name,
+            name: item.name
+        }
+    });
+
+
+    // let missing = history.filter (item => {
+    //     if (!library.some (track => ((track.track == item.trackName) && (track.artist == item.artistName)))) {
+    //         return item;
+    //     }
+    // });
+
+    // let missing = history.filter (item => {
+    //     if (!library.some (track => ((track.name == item.name) && (track.artist == item.artist)))) {
+    //         return item;
+    //     }
+    // });
+
+    function sorting (first, second) {
+        return mp.compare (first, second, ["artist", "name"]);
+    };
+
+    function sortByCount (first, second) {
+        return mp.compare (first, second, ["count", "artist", "name"]);
+    };
+
+    let mostListened = 1;
+
+
+    library = library.sort (sorting);
+
+    for (let i = 0; i < library.length - 1; i++) {
+
+        if (mp.compare (library [i], library [i + 1], ["artist", "name"]) === 0) {
+
+            let j = 1;
+            while (j < library.length) {
+                if (mp.compare (library [i + j], library [i + j + 1]) != 0) {
+                    break;
+                };
+                j++;
+            };
+
+            library [i].count = j + 1;
+
+            if (j + 1 > mostListened) {
+                mostListened = j + 1;
+            };
+
+            library.splice (i + 1, j);
+        };
+    };
+
+    const unpopularThreshold = Math.max (Math.round (mostListened / 10), 2);
+
+
+    let results = library.filter (item => item.count < unpopularThreshold).sort (sortByCount).map (track => ({
+        name: track.name,
+        artist: track.artist,
+        count: track.count
+    }));
+
+    while (results.length > 100) {
+
+        if (unpopularThreshold > 1) {
+            unpopularThreshold -= 1;
+            results = results.filter (item => item.count < unpopularThreshold).sort (sortByCount);
+        } else {
+            const mindex = Math.floor (Math.random () * results.length);
+            const maxdex = (mindex + 100 < results.length) ? mindex + 100 : (results.length - mindex) - 100
+            results = results [];
+        };
+    };
+
+    const total = results.length;
+
+    console.log (`${missing.length} out of ${library.length} tracks in your listening history are not in your library, ${total} of which you have listened to more than ${missingThreshold} times!`);
+
+    if (total > 0) {
+
+        if (total < 50) {
+            for (const result of results) {
+                console.log (result);
+            };
+        };
+
+        const trackList = [];
+
+        let completed = 0;
+
+        // const tracks = new Promise (resolve => {
+        //     results.forEach (async track => {
+
+        //         const query = {
+        //             keywords: track.name,
+        //             ... track.album && { album: track.album },
+        //             artist: track.artist,
+        //             track: track.name,
+        //             types: ["track"]
+        //         };
+
+        //         const searchResults = await search (query, token);
+
+        //         if (searchResults == []) {
+        //             console.log (searchResults);
+        //             return false;
+        //         };
+
+        //         const current = searchResults [0].id;
+
+        //         if (!trackList.includes (current)) {
+        //             trackList.push (current);
+        //         };
+
+        //         completed += 1
+
+        //         if (completed == total) {
+        //             resolve (trackList);
+        //         };
+
+        //     });
+        // });
+
+        // const details = {
+        //     name: "Lost Tracks",
+        //     description: `A playlist containing ${total} songs that are missing from your library.`,
+        //     image: null,
+        //     tracks: await tracks
+        // };
+
+        // return createPlaylist (userID, token, details);
+
+    } else {
+        console.log ("Found no ");
+    };
+}
+
 // Duplicates the user's saved songs library
 async function everything (userID, token) {
     const library = await getSavedTracks (userID, token);
